@@ -5,13 +5,14 @@ from telegram import Update, ForceReply, InlineKeyboardButton, InlineKeyboardMar
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, JobQueue
 from storage import ReservationStorage, BikeStorage, UserStorage
 from datetime import datetime, timedelta
+import os
 
 # Conversation stages and button labels
 CHOOSING_FIELD, CHOOSE_PICKUP_TIME, CHOOSE_DURATION, CHOOSE_BIKE, CHOOSE_ASSOCIATION, SET_EMAIL = range(6)
 DURATION_OPTIONS = ["30 minutes", "1 hour", "3 hours", "5 hours", "1 day"]
 
 # Variables
-bot_token = "7349700963:AAHN96qXlIjdLu_oN13J3-swro0jHHGp06I"
+bot_token = os.getenv("BOT_TOKEN")
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
