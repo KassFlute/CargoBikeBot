@@ -1,13 +1,13 @@
 import logging
 import uuid
 import asyncio
-from telegram import Update, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, WebAppInfo, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, WebAppInfo, ReplyKeyboardMarkup, ReplyKeyboardRemove, constants
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, JobQueue
-from storage import ReservationStorage, BikeStorage
+from storage import ReservationStorage, BikeStorage, UserStorage
 from datetime import datetime, timedelta
 
 # Conversation stages and button labels
-CHOOSING_FIELD, CHOOSE_PICKUP_TIME, CHOOSE_DURATION, CHOOSE_ASSOCIATION, SET_EMAIL = range(5)
+CHOOSING_FIELD, CHOOSE_PICKUP_TIME, CHOOSE_DURATION, CHOOSE_BIKE, CHOOSE_ASSOCIATION, SET_EMAIL = range(6)
 DURATION_OPTIONS = ["30 minutes", "1 hour", "3 hours", "5 hours", "1 day"]
 
 # Variables
@@ -20,15 +20,18 @@ logger = logging.getLogger(__name__)
 # Initialize the storage for reservations
 reservation_storage = ReservationStorage()
 bike_storage = BikeStorage()
+user_storage = UserStorage()
 
 def get_main_menu_text(user_data):
-    text = f"New Reservation: \n" + get_reservation_text(user_data)
+    text = f"<b>New Reservation:</b> \n" + get_reservation_text(user_data)
     return text
 
 def get_reservation_text(user_data):
+    bike_name = bike_storage.get_bike_by_id(user_data['bike'])['name'] if 'bike' in user_data else 'Not set'
     text = (
         f"Pickup Time: {user_data.get('pickup_time').strftime('%d-%m-%Y %H:%M') if 'pickup_time' in user_data else 'Not set'}\n"
         f"Duration: {user_data.get('duration', 'Not set')}\n"
+        f"Bike: {bike_name}\n"
         f"Association: {user_data.get('association', 'Not set')}\n"
         f"Email: {user_data.get('email', 'Not set')}\n"
     )
@@ -78,7 +81,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     elif query.data == "new_reservation":
         """Display the main menu for creating a new reservation."""
+        if 'main_menu_message_id' in context.user_data:
+            await cancel(update, context)
         context.user_data.clear()  # Clear any previous reservation data
+        
+        # Set user association and email if already saved
+        user = user_storage.get_user_by_id(update.effective_user.id)
+        if user:
+            context.user_data['association'] = user['association']
+            context.user_data['email'] = user['email']
         return await show_main_menu(update, context)
     
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -89,11 +100,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     keyboard = [
         [InlineKeyboardButton(f"Choose Pickup Time{' ✔️' if 'pickup_time' in user_data else ''}", callback_data="choose_pickup_time")],
         [InlineKeyboardButton(f"Choose Duration{' ✔️' if 'duration' in user_data else ''}" , callback_data="choose_duration")],
+        [InlineKeyboardButton(f"Choose Bike{' ✔️' if 'bike' in user_data else ''}", callback_data="choose_bike")],
         [InlineKeyboardButton(f"Set Association{' ✔️' if 'association' in user_data else ''}", callback_data="choose_association")],
         [InlineKeyboardButton(f"Set Email{' ✔️' if 'email' in user_data else ''}", callback_data="set_email")],
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_reservation")],
     ]
-    if all(field in user_data for field in ["pickup_time", "duration", "association", "email"]):
+    if all(field in user_data for field in ["pickup_time", "duration", "bike", "association", "email"]):
         keyboard.append([InlineKeyboardButton("✅ Validate", callback_data="validate_reservation")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -102,15 +114,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text=text,
             chat_id=update.effective_chat.id,
             message_id=user_data['main_menu_message_id'],
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            parse_mode=constants.ParseMode.HTML
         )
     else:
-        if update.callback_query:
-            message = await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
-            context.user_data['main_menu_message_id'] = message.message_id
-        else:
-            message = await update.message.reply_text(text, reply_markup=reply_markup)
-            context.user_data['main_menu_message_id'] = message.message_id
+        message = await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode=constants.ParseMode.HTML)
+        context.user_data['main_menu_message_id'] = message.message_id
 
     return CHOOSING_FIELD
 
@@ -126,7 +135,7 @@ async def handle_field_callback(update: Update, context: ContextTypes.DEFAULT_TY
         query_url = f"https://expented.github.io/tgdtp/?text={query_text}&min={query_min}&max={query_max}"
         
         await query.edit_message_text("Please select pickup time")
-        msg = await query.message.reply_text("selecting", reply_markup=ReplyKeyboardMarkup([
+        msg = await query.message.reply_text("selecting...", reply_markup=ReplyKeyboardMarkup([
             [MenuButtonWebApp("Select Pickup Time", web_app=WebAppInfo(url=query_url))]
         ], resize_keyboard=True, one_time_keyboard=True))
         context.user_data['pickup_time_keyboard_message_id'] = msg.message_id
@@ -137,6 +146,13 @@ async def handle_field_callback(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = [[InlineKeyboardButton(duration, callback_data=f"duration_{duration}")] for duration in DURATION_OPTIONS]
         await query.edit_message_text("Choose a duration:", reply_markup=InlineKeyboardMarkup(keyboard))
         return CHOOSE_DURATION
+    
+    elif query.data == "choose_bike":
+        # Provide bike options
+        bikes = bike_storage.list_bikes()
+        keyboard = [[InlineKeyboardButton(f"{bike['bike_id']} - {bike['name']} ({bike['size']})", callback_data=f"bike_{bike['bike_id']}")] for bike in bikes]
+        await query.edit_message_text("Choose a bike:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return CHOOSE_BIKE
 
     elif query.data == "choose_association":
         message = await query.edit_message_text("Please send the association name:")
@@ -179,6 +195,14 @@ async def set_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     
     return await show_main_menu(update, context)
 
+async def set_bike(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Set bike name based on user input."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data['bike'] = int(query.data.split("_")[1])
+    
+    return await show_main_menu(update, context)
+
 async def set_association(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Set association name based on user input."""
     context.user_data['association'] = update.message.text
@@ -199,7 +223,7 @@ async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def validate_reservation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Validate reservation fields and save if all fields are filled."""
-    required_fields = ["pickup_time", "duration", "association", "email"]
+    required_fields = ["pickup_time", "duration", "bike", "association", "email"]
     missing_fields = [field for field in required_fields if field not in context.user_data]
 
     if missing_fields:
@@ -223,11 +247,33 @@ async def validate_reservation(update: Update, context: ContextTypes.DEFAULT_TYP
         update.effective_user.last_name,
         context.user_data['association'],
         context.user_data['email'],
+        context.user_data['bike'],
         context.user_data['pickup_time'],
         context.user_data['end_datetime'],
         'accepted',
-        0
     )
+    
+    # Save user in db if not already saved
+    if not user_storage.get_user_by_id(update.effective_user.id):
+        user_storage.add_user(
+            update.effective_user.id,
+            update.effective_user.username,
+            update.effective_user.first_name,
+            update.effective_user.last_name,
+        context.user_data['association'],
+            context.user_data['email'],
+        )
+    # Update association and email if user already exists
+    else:
+        user_storage.update_user(
+            update.effective_user.id,
+            update.effective_user.username,
+            update.effective_user.first_name,
+            update.effective_user.last_name,
+            context.user_data['association'],
+            context.user_data['email'],
+        )
+    
     # Delete main menu message
     await context.bot.delete_message(update.effective_chat.id, context.user_data['main_menu_message_id'])
     
@@ -240,21 +286,12 @@ async def validate_reservation(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation."""
-    if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.message.reply_text("Reservation creation canceled.")
-        await update.callback_query.delete_message()
-    else:
-        await update.message.reply_text("Reservation creation canceled.")
-        await context.bot.delete_message(update.effective_chat.id, context.user_data['main_menu_message_id'])
+    await context.bot.send_message(update.effective_chat.id, "Reservation creation canceled.")
+    await context.bot.delete_message(update.effective_chat.id, context.user_data['main_menu_message_id'])
         
     # Delete any messages that were sent during the conversation
-    if context.user_data.get('pickup_time_message_id'):
-        await context.bot.delete_message(update.effective_chat.id, context.user_data['pickup_time_message_id'])
-    if context.user_data.get('association_message_id'):
-        await context.bot.delete_message(update.effective_chat.id, context.user_data['association_message_id'])
-    if context.user_data.get('email_message_id'):
-        await context.bot.delete_message(update.effective_chat.id, context.user_data['email_message_id'])
+    if context.user_data.get('pickup_time_keyboard_message_id'):
+        await context.bot.delete_message(update.effective_chat.id, context.user_data['pickup_time_keyboard_message_id'])
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -276,6 +313,7 @@ def main() -> None:
             CHOOSING_FIELD: [CallbackQueryHandler(handle_field_callback)],
             CHOOSE_PICKUP_TIME: [MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_web_app_pickup_data)],
             CHOOSE_DURATION: [CallbackQueryHandler(set_duration, pattern="^duration_")],
+            CHOOSE_BIKE: [CallbackQueryHandler(set_bike, pattern="^bike_")],
             CHOOSE_ASSOCIATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_association)],
             SET_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_email)],
         },
