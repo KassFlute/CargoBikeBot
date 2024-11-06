@@ -1,0 +1,5 @@
+bikes.csv
+reservations.csv
+.vscode/settings.json
+__pycache__/reservation_storage.cpython-313.pyc
+__pycache__/storage.cpython-313.pyc
