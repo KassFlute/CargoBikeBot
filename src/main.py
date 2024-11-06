@@ -182,6 +182,7 @@ async def handle_web_app_pickup_data(update: Update, context: ContextTypes.DEFAU
     
     # Delete the pickup keyboard message
     await context.bot.delete_message(update.effective_chat.id, context.user_data['pickup_time_keyboard_message_id'])
+    context.user_data.pop('pickup_time_keyboard_message_id')
     
     return await show_main_menu(update, context)
 
