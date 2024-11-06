@@ -22,7 +22,7 @@ reservation_storage = ReservationStorage()
 bike_storage = BikeStorage()
 
 def get_main_menu_text(user_data):
-    text = f"New Reservation\n" + get_reservation_text(user_data)
+    text = f"New Reservation: \n" + get_reservation_text(user_data)
     return text
 
 def get_reservation_text(user_data):
@@ -70,6 +70,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     
     if query.data.startswith("view_"):
+        print("Viewing reservation")
         reservation_id = int(query.data.split("_")[1])
         reservation = reservation_storage.get_reservation_by_id(reservation_id)
         reservation_details = "\n".join([f"{key}: {value}" for key, value in reservation.items()])
@@ -91,8 +92,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton(f"Set Association{' ✔️' if 'association' in user_data else ''}", callback_data="choose_association")],
         [InlineKeyboardButton(f"Set Email{' ✔️' if 'email' in user_data else ''}", callback_data="set_email")],
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_reservation")],
-        [InlineKeyboardButton("✅ Validate", callback_data="validate_reservation")],
     ]
+    if all(field in user_data for field in ["pickup_time", "duration", "association", "email"]):
+        keyboard.append([InlineKeyboardButton("✅ Validate", callback_data="validate_reservation")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if 'main_menu_message_id' in user_data:
@@ -109,12 +111,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             message = await update.message.reply_text(text, reply_markup=reply_markup)
             context.user_data['main_menu_message_id'] = message.message_id
-    
-    # if update.callback_query:
-    #     await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-    # else:
-    #     message = await update.message.reply_text(text, reply_markup=reply_markup)
-    #     context.user_data['main_menu_message_id'] = message.message_id
 
     return CHOOSING_FIELD
 
@@ -129,26 +125,27 @@ async def handle_field_callback(update: Update, context: ContextTypes.DEFAULT_TY
         query_max = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
         query_url = f"https://expented.github.io/tgdtp/?text={query_text}&min={query_min}&max={query_max}"
         
-        message = await query.message.reply_text("Please select pickup time", reply_markup=ReplyKeyboardMarkup([
+        await query.edit_message_text("Please select pickup time")
+        msg = await query.message.reply_text("selecting", reply_markup=ReplyKeyboardMarkup([
             [MenuButtonWebApp("Select Pickup Time", web_app=WebAppInfo(url=query_url))]
         ], resize_keyboard=True, one_time_keyboard=True))
-        context.user_data['pickup_time_message_id'] = message.message_id
+        context.user_data['pickup_time_keyboard_message_id'] = msg.message_id
         return CHOOSE_PICKUP_TIME
 
     elif query.data == "choose_duration":
         # Provide duration options
         keyboard = [[InlineKeyboardButton(duration, callback_data=f"duration_{duration}")] for duration in DURATION_OPTIONS]
-        await query.message.reply_text("Choose a duration:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("Choose a duration:", reply_markup=InlineKeyboardMarkup(keyboard))
         return CHOOSE_DURATION
 
     elif query.data == "choose_association":
-        message = await query.message.reply_text("Please send the association name:")
-        context.user_data['association_message_id'] = message.message_id
+        message = await query.edit_message_text("Please send the association name:")
+        # context.user_data['association_message_id'] = message.message_id
         return CHOOSE_ASSOCIATION
 
     elif query.data == "set_email":
-        message = await query.message.reply_text("Please send your email:")
-        context.user_data['email_message_id'] = message.message_id
+        message = await query.edit_message_text("Please send your email:")
+        # context.user_data['email_message_id'] = message.message_id
         return SET_EMAIL
     
     elif query.data == "cancel_reservation":
@@ -166,9 +163,8 @@ async def handle_web_app_pickup_data(update: Update, context: ContextTypes.DEFAU
     start_datetime = datetime.fromtimestamp(timestamp / 1000)
     context.user_data['pickup_time'] = start_datetime
     
-    # Delete the pickup time message
-    await context.bot.delete_message(update.effective_chat.id, context.user_data['pickup_time_message_id'])
-    await update.message.delete()
+    # Delete the pickup keyboard message
+    await context.bot.delete_message(update.effective_chat.id, context.user_data['pickup_time_keyboard_message_id'])
     
     return await show_main_menu(update, context)
 
@@ -179,7 +175,7 @@ async def set_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data['duration'] = query.data.split("_")[1]
         
     # Delete the duration message
-    await query.message.delete()
+    # await query.message.delete()
     
     return await show_main_menu(update, context)
 
@@ -189,7 +185,7 @@ async def set_association(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Delete the association message and user's message
     await update.message.delete()
-    await context.bot.delete_message(update.effective_chat.id, context.user_data['association_message_id'])
+    # await context.bot.delete_message(update.effective_chat.id, context.user_data['association_message_id'])
     return await show_main_menu(update, context)
 
 async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -198,7 +194,7 @@ async def set_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     # Delete the email message and user's message
     await update.message.delete()
-    await context.bot.delete_message(update.effective_chat.id, context.user_data['email_message_id'])
+    # await context.bot.delete_message(update.effective_chat.id, context.user_data['email_message_id'])
     return await show_main_menu(update, context)
 
 async def validate_reservation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -207,7 +203,7 @@ async def validate_reservation(update: Update, context: ContextTypes.DEFAULT_TYP
     missing_fields = [field for field in required_fields if field not in context.user_data]
 
     if missing_fields:
-        warning_msg = await update.callback_query.message.reply_text(f"Please fill in all fields before validation")
+        warning_msg = await update.callback_query.message.reply_text(f"Missing fields: {', '.join(missing_fields)}")
         await asyncio.sleep(2)
         await warning_msg.delete()
         return CHOOSING_FIELD
