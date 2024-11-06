@@ -19,7 +19,7 @@ class ReservationStorage:
             except FileExistsError:
                 pass
 
-    def add_reservation(self, user_id:int, username:str, first_name:str, last_name:str, association_name:str, email:str, start_datetime:datetime, end_datetime:datetime, status:str='pending', bike_id:int=0):
+    def add_reservation(self, user_id:int, username:str, first_name:str, last_name:str, association_name:str, email:str, bike_id:int, start_datetime:datetime, end_datetime:datetime, status:str='pending'):
         """Add a new reservation to the CSV file."""
         reservation_id = int(uuid.uuid4().int >> 64)  # Convert UUID to a unique integer
         with self.lock:
@@ -116,3 +116,63 @@ class BikeStorage:
                     row['bike_id'] = int(row['bike_id'])
                     bikes.append(row)
             return bikes
+
+class UserStorage:
+    def __init__(self, filename='users.csv'):
+        self.filename = filename
+        self.lock = threading.Lock()
+        self._initialize_csv()
+        
+    def _initialize_csv(self):
+        """Initialize the CSV file with a header if it doesn't exist."""
+        with self.lock:
+            try:
+                with open(self.filename, 'x', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(['user_id', 'username', 'first_name', 'last_name', 'association', 'email'])
+            except FileExistsError:
+                pass
+            
+    def add_user(self, user_id:int, username:str, first_name:str, last_name:str, association:str, email:str):
+        """Add a new user to the CSV file."""
+        with self.lock:
+            with open(self.filename, 'a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow([user_id, username, first_name, last_name, association, email])
+        
+    def update_user(self, user_id:int, username:str, first_name:str, last_name:str, association:str, email:str):
+        """Update an existing user in the CSV file."""
+        with self.lock:
+            with open(self.filename, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                rows = list(reader)
+            with open(self.filename, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['user_id', 'username', 'first_name', 'last_name', 'association_name', 'email'])
+                for row in rows:
+                    if int(row['user_id']) == user_id:
+                        writer.writerow([user_id, username, first_name, last_name, association, email])
+                    else:
+                        writer.writerow(int(row['user_id']), row['username'], row['first_name'], row['last_name'], row['association_name'], row['email'])       
+                
+    def get_user_by_id(self, user_id):
+        """Retrieve a user by its ID, converting ID to int."""
+        with self.lock:
+            with open(self.filename, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    if int(row['user_id']) == user_id:
+                        row['user_id'] = int(row['user_id'])
+                        return row
+        return None
+    
+    def list_users(self):
+        """List all users, converting IDs to int."""
+        with self.lock:
+            users = []
+            with open(self.filename, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    row['user_id'] = int(row['user_id'])
+                    users.append(row)
+            return users
