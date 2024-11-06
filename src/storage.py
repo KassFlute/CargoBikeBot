@@ -2,9 +2,12 @@ import csv
 import threading
 import uuid
 from datetime import datetime
+import os
+
+dirname = os.path.dirname(__file__)
 
 class ReservationStorage:
-    def __init__(self, filename='reservations.csv'):
+    def __init__(self, filename=os.path.join(dirname,'../storage/reservations.csv')):
         self.filename = filename
         self.lock = threading.Lock()
         self._initialize_csv()
@@ -73,7 +76,7 @@ class ReservationStorage:
 
 
 class BikeStorage:
-    def __init__(self, filename='bikes.csv'):
+    def __init__(self, filename=os.path.join(dirname,'../storage/bikes.csv')):
         self.filename = filename
         self.lock = threading.Lock()
         self._initialize_csv()
@@ -118,7 +121,7 @@ class BikeStorage:
             return bikes
 
 class UserStorage:
-    def __init__(self, filename='users.csv'):
+    def __init__(self, filename=os.path.join(dirname,'../storage/users.csv')):
         self.filename = filename
         self.lock = threading.Lock()
         self._initialize_csv()
