@@ -46,7 +46,7 @@ This project is a Telegram bot for managing bike reservations. Users can create,
 
 1. Run the bot:
     ```sh
-    python [main.py](http://_vscodecontentref_/1)
+    python main.py
     ```
 
 2. Interact with the bot on Telegram using the commands:
